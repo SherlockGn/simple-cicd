@@ -1,0 +1,32 @@
+<html>
+    <head>
+        <!-- JQuery -->
+        <script src="https://cdn.bootcdn.net/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+    </head>
+    <body>
+        Homepage
+    </body>
+</html>
+
+<script>
+    async function ajax(url, method, body) {
+        return new Promise((resolve, reject) => {
+            const ajaxOption = {
+                url: url,
+                type: method,
+                contentType: "application/json",
+                data: JSON.stringify(body),
+                success: data => resolve(data),
+                error: (request) => {
+                    console.log(request.responseText)
+                    resolve()
+                }
+            }
+            if (!body) {
+                delete ajaxOption.contentType
+                delete ajaxOption.body
+            }
+            $.ajax(ajaxOption)
+        })
+    }
+</script>

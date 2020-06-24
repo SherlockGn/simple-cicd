@@ -1,0 +1,6 @@
+public/db/*.json
+
+node_modules
+binary
+
+package-lock.json
