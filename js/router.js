@@ -68,6 +68,29 @@ const getStatus = async (proj) => {
     }
 }
 
+const projectLocker = {
+    lock(proj) {
+        const fileName = path.join(dbFolder, `${proj}.lock`)
+        if (!fs.existsSync(fileName)) {
+            fs.writeFileSync(fileName, '')
+        } else {
+            throw new Error("already locked")
+        }
+    },
+    isLocked(proj) {
+        const fileName = path.join(dbFolder, `${proj}.lock`)
+        return fs.existsSync(fileName)
+    },
+    unlock(proj) {
+        const fileName = path.join(dbFolder, `${proj}.lock`)
+        if (fs.existsSync(fileName)) {
+            fs.unlinkSync(fileName)
+        } else {
+            throw new Error("already unlocked")
+        }
+    }
+}
+
 router.get("/", (request, response, next) => {
     response.redirect(`/page/index.html`)
 })
@@ -148,8 +171,21 @@ router.delete("/api/project", async (request, response, next) => {
 
 router.post("/api/project/act", async (request, response, next) => {
     const body = request.body
-    const action = body.action
-    const name = body.name
+    let action = body.action
+    let name = body.name
+
+    const isGitee = request.headers["x-gitee-event"] === "Push Hook"
+    if (isGitee) {
+        action = "build"
+        name = body.project.name
+    }
+
+    const isGithub = request["x-github-event"] === "push"
+    if (isGithub) {
+        action = "build"
+        name = body.repository.name
+    }
+
     const dbPath = path.join(dbFolder, `${name}.json`)
     const cleanLoggerPath = path.join(dbFolder, `${name}.clean.log.json`)
     const buildLoggerPath = path.join(dbFolder, `${name}.build.log.json`)
@@ -168,6 +204,33 @@ router.post("/api/project/act", async (request, response, next) => {
         return
     }
     const definition = JSON.parse(fs.readFileSync(dbPath))
+
+    if (isGitee && `/ref/heads/${definition.branch}` !== body.ref) {
+        response.status(400).json({
+            param: "ref",
+            reason: `not target branch ${definition.branch}`
+        })
+        return
+    }
+
+    if (isGithub && `refs/heads/${definition.branch}` !== body.ref) {
+        response.status(400).json({
+            param: "ref",
+            reason: `not target branch ${definition.branch}`
+        })
+        return
+    }
+
+    if (projectLocker.isLocked(name)) {
+        response.status(400).json({
+            param: "ref",
+            reason: `project is locked`
+        })
+        return
+    }
+
+    projectLocker.lock(name)
+
     const environment = await env()
     const projectPath = path.join(environment.env.workingDir, name)
     const logs = []
@@ -212,6 +275,7 @@ router.post("/api/project/act", async (request, response, next) => {
 
         await execProjectCommand(definition.run, name, buildLoggerPath, logs)
     }
+    projectLocker.unlock(name)
     console.log("DONE")
     response.status(204).send()
 })
@@ -259,6 +323,15 @@ router.put("/api/status",  async (request, response, next) => {
         })
         return
     }
+
+    if (projectLocker.isLocked(name)) {
+        response.status(400).json({
+            param: "ref",
+            reason: `project is locked`
+        })
+        return
+    }
+    
     const keyword = JSON.parse(fs.readFileSync(fileName)).keyword
     response.json(await exec(`sc.exe ${action} ${keyword}`))
 })
